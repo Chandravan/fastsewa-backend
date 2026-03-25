@@ -2,6 +2,28 @@ import dotenv from "dotenv"
 
 dotenv.config()
 
+function normalizeUrl(value) {
+  return String(value || "").trim().replace(/\/+$/, "")
+}
+
+function parseOrigins(value) {
+  return String(value || "")
+    .split(",")
+    .map((origin) => normalizeUrl(origin))
+    .filter(Boolean)
+}
+
+const defaultCorsOrigins = ["http://localhost:5173"]
+const configuredCorsOrigins = parseOrigins(process.env.CORS_ORIGIN)
+const frontendUrl = normalizeUrl(process.env.FRONTEND_URL)
+const corsOrigins = Array.from(
+  new Set([
+    ...defaultCorsOrigins,
+    ...configuredCorsOrigins,
+    frontendUrl,
+  ].filter(Boolean)),
+)
+
 export const env = {
   nodeEnv: process.env.NODE_ENV || "development",
   port: Number(process.env.PORT) || 5000,
@@ -9,8 +31,9 @@ export const env = {
   jwtSecret: process.env.JWT_SECRET || "change-me-in-production",
   jwtExpiresIn: process.env.JWT_EXPIRES_IN || "7d",
   passwordResetTokenTtlMinutes: Number(process.env.PASSWORD_RESET_TOKEN_TTL_MINUTES) || 30,
-  corsOrigin: process.env.CORS_ORIGIN || "http://localhost:5173",
-  frontendUrl: process.env.FRONTEND_URL || process.env.CORS_ORIGIN || "http://localhost:5173",
+  corsOrigin: corsOrigins[0] || defaultCorsOrigins[0],
+  corsOrigins,
+  frontendUrl: frontendUrl || configuredCorsOrigins[0] || defaultCorsOrigins[0],
   backendPublicUrl: process.env.BACKEND_PUBLIC_URL || `http://localhost:${Number(process.env.PORT) || 5000}`,
   seedAdminPassword: process.env.SEED_ADMIN_PASSWORD || "password123",
   seedClientPassword: process.env.SEED_CLIENT_PASSWORD || "password123",

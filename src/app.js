@@ -7,9 +7,21 @@ import { notFound } from "./middlewares/notFound.js"
 import { apiRouter } from "./routes/index.js"
 
 export const app = express()
+const allowedOrigins = new Set(env.corsOrigins)
+
+function normalizeOrigin(origin) {
+  return String(origin || "").trim().replace(/\/+$/, "")
+}
 
 app.use(cors({
-  origin: env.corsOrigin,
+  origin(origin, callback) {
+    if (!origin) {
+      callback(null, true)
+      return
+    }
+
+    callback(null, allowedOrigins.has(normalizeOrigin(origin)))
+  },
   credentials: true,
 }))
 app.use(express.json({ limit: "1mb" }))

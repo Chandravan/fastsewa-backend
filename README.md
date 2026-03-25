@@ -33,6 +33,8 @@ The API will run on `http://localhost:5000` by default.
 
 For local CCAvenue testing, `BACKEND_PUBLIC_URL` must be a publicly reachable HTTPS URL. In practice that means deploying the backend or exposing it with a tunnel before the gateway can POST back to `/api/payments/ccavenue/callback`.
 
+`CORS_ORIGIN` accepts a comma-separated list. For example, on Render you can allow both local development and Vercel with `http://localhost:5173,https://fast-sewa-filing.vercel.app`.
+
 ## Demo Accounts
 
 - Admin: `admin@fastsewa.in`
