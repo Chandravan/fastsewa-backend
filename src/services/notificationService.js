@@ -147,6 +147,27 @@ function getOrderCore(order) {
   }
 }
 
+function shortenText(value, maxLength = 800) {
+  const text = String(value || "").trim()
+  if (text.length <= maxLength) {
+    return text
+  }
+
+  return `${text.slice(0, maxLength)}...`
+}
+
+function getInquiryStatusLabel(status) {
+  if (status === "in_progress") {
+    return "In Progress"
+  }
+
+  if (status === "closed") {
+    return "Closed"
+  }
+
+  return "New"
+}
+
 export function queueNotification(label, task) {
   Promise.resolve()
     .then(task)
@@ -237,6 +258,161 @@ export async function sendPasswordChangedEmail({ user }) {
       actionLabel: "Sign In",
       actionUrl,
       outro: buildSupportLine(),
+    }),
+  })
+}
+
+export async function sendContactInquiryNotifications({ inquiry }) {
+  if (!inquiry) {
+    return { skipped: true, reason: "missing-inquiry" }
+  }
+
+  const submittedAt = new Date(inquiry.createdAt || Date.now()).toLocaleString("en-IN", {
+    dateStyle: "medium",
+    timeStyle: "short",
+    timeZone: "Asia/Kolkata",
+  })
+  const subject = `New contact inquiry from ${inquiry.name || "Website visitor"}`
+  const messagePreview = shortenText(inquiry.message, 1200)
+
+  const adminNotification = sendEmail({
+    to: getAdminRecipients(),
+    subject,
+    text: [
+      "A new contact inquiry was submitted on FastSewa website.",
+      `Name: ${inquiry.name || "-"}`,
+      `Email: ${inquiry.email || "-"}`,
+      `Submitted at: ${submittedAt}`,
+      `Inquiry ID: ${inquiry.id || "-"}`,
+      "",
+      "Message:",
+      messagePreview || "-",
+      "",
+      buildSupportLine(),
+    ].join("\n"),
+    html: buildEmailHtml({
+      title: "New contact inquiry",
+      intro: "A visitor submitted a message from the contact form.",
+      detailRows: [
+        { label: "Name", value: inquiry.name || "-" },
+        { label: "Email", value: inquiry.email || "-" },
+        { label: "Submitted at", value: submittedAt },
+        { label: "Inquiry ID", value: inquiry.id || "-" },
+      ],
+      outro: `Message: ${messagePreview || "-"}\n\n${buildSupportLine()}`,
+    }),
+  })
+
+  const customerAcknowledgement = inquiry.email
+    ? sendEmail({
+        to: inquiry.email,
+        subject: "We received your message | FastSewa",
+        text: [
+          `Hi ${inquiry.name || "there"},`,
+          "",
+          "We have received your message and our team will get back to you shortly.",
+          "For urgent queries, you can also contact support directly.",
+          "",
+          buildSupportLine(),
+        ].join("\n"),
+        html: buildEmailHtml({
+          title: "Thanks for reaching out",
+          intro: `Hi ${inquiry.name || "there"}, we have received your message and our team will contact you shortly.`,
+          detailRows: [
+            { label: "Reference", value: inquiry.id || "-" },
+            { label: "Submitted", value: submittedAt },
+          ],
+          outro: buildSupportLine(),
+        }),
+      })
+    : Promise.resolve({ skipped: true, reason: "missing-recipient-email" })
+
+  const [adminResult, customerResult] = await Promise.allSettled([
+    adminNotification,
+    customerAcknowledgement,
+  ])
+
+  return {
+    adminResult,
+    customerResult,
+  }
+}
+
+export async function sendContactInquiryUpdatedEmail({ inquiry, previousState = {} }) {
+  if (!inquiry?.email) {
+    return { skipped: true, reason: "missing-recipient-email" }
+  }
+
+  const previousStatus = String(previousState.status || "new")
+  const previousNotes = String(previousState.adminNotes || "").trim()
+  const nextStatus = String(inquiry.status || "new")
+  const nextNotes = String(inquiry.adminNotes || "").trim()
+
+  const statusChanged = previousStatus !== nextStatus
+  const notesChanged = previousNotes !== nextNotes
+
+  if (!statusChanged && !notesChanged) {
+    return { skipped: true, reason: "no-visible-change" }
+  }
+
+  const nextStatusLabel = getInquiryStatusLabel(nextStatus)
+  const subject = statusChanged
+    ? `Inquiry update: ${nextStatusLabel} | FastSewa`
+    : "Inquiry update from FastSewa"
+  const updateTime = new Date(inquiry.updatedAt || Date.now()).toLocaleString("en-IN", {
+    dateStyle: "medium",
+    timeStyle: "short",
+    timeZone: "Asia/Kolkata",
+  })
+  const notesPreview = nextNotes ? shortenText(nextNotes, 600) : ""
+  const previousStatusLabel = getInquiryStatusLabel(previousStatus)
+  const textLines = [
+    `Hi ${inquiry.name || "there"},`,
+    "",
+    "There is an update on your FastSewa inquiry.",
+    statusChanged
+      ? `Status changed from ${previousStatusLabel} to ${nextStatusLabel}`
+      : `Current status: ${nextStatusLabel}`,
+  ]
+
+  if (notesChanged && notesPreview) {
+    textLines.push("")
+    textLines.push("Latest support note:")
+    textLines.push(notesPreview)
+  } else if (notesChanged && !notesPreview) {
+    textLines.push("")
+    textLines.push("Latest support note was removed.")
+  }
+
+  textLines.push("")
+  textLines.push(`Reference: ${inquiry.id || "-"}`)
+  textLines.push(`Last update: ${updateTime}`)
+  textLines.push("")
+  textLines.push(buildSupportLine())
+
+  const detailRows = [
+    { label: "Reference", value: inquiry.id || "-" },
+    { label: "Current status", value: nextStatusLabel },
+    { label: "Last update", value: updateTime },
+  ]
+
+  if (notesChanged && notesPreview) {
+    detailRows.push({ label: "Latest support note", value: notesPreview })
+  }
+
+  const outro = notesChanged && notesPreview
+    ? `Latest support note: ${notesPreview}\n\n${buildSupportLine()}`
+    : buildSupportLine()
+
+  return sendEmail({
+    to: inquiry.email,
+    subject,
+    text: textLines.join("\n"),
+    html: buildEmailHtml({
+      title: "Your inquiry was updated",
+      intro: `Hi ${inquiry.name || "there"}, there is an update on your FastSewa inquiry.`,
+      detailRows,
+      outro,
     }),
   })
 }

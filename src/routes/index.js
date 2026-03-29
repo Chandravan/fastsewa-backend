@@ -1,6 +1,7 @@
 import { Router } from "express"
 import { auditRouter } from "./auditRoutes.js"
 import { authRouter } from "./authRoutes.js"
+import { contactRouter } from "./contactRoutes.js"
 import { dashboardRouter } from "./dashboardRoutes.js"
 import { orderRouter } from "./orderRoutes.js"
 import { paymentRouter } from "./paymentRoutes.js"
@@ -16,3 +17,4 @@ apiRouter.use("/orders", orderRouter)
 apiRouter.use("/payments", paymentRouter)
 apiRouter.use("/dashboard", dashboardRouter)
 apiRouter.use("/users", userRouter)
+apiRouter.use("/contact", contactRouter)

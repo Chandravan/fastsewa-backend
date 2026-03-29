@@ -94,6 +94,22 @@ export const ADMIN_PERMISSION_GROUPS = [
     ],
   },
   {
+    id: "inquiries",
+    label: "Contact Desk",
+    permissions: [
+      {
+        key: "inquiries.view",
+        label: "View inquiries",
+        description: "Open and inspect contact form submissions.",
+      },
+      {
+        key: "inquiries.manage",
+        label: "Manage inquiries",
+        description: "Update inquiry status and add support notes.",
+      },
+    ],
+  },
+  {
     id: "audit",
     label: "Audit & Trace",
     permissions: [
@@ -154,6 +170,8 @@ export const ADMIN_PERMISSION_TEMPLATES = [
       "users.view",
       "users.manage",
       "users.disable",
+      "inquiries.view",
+      "inquiries.manage",
       "audit.view",
     ],
   },
