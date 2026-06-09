@@ -64,7 +64,56 @@ function summarizeOrderChanges(previousState, order) {
   return changes
 }
 
-function applyAdminOrderUpdate(order, payload) {
+function sanitizeTextInput(value) {
+  return String(value || "").trim()
+}
+
+function getPaymentAttemptStatus(paymentStatus, currentAttemptStatus = "none") {
+  if (paymentStatus === "paid") return "success"
+  if (paymentStatus === "failed") return "failed"
+  if (paymentStatus === "verification_pending") return "verification_pending"
+  if (paymentStatus === "pending") return "none"
+  return currentAttemptStatus || "none"
+}
+
+function buildPaymentAuditEntry({ previousState, order, payload, actor }) {
+  const note = sanitizeTextInput(payload.paymentVerificationNote || payload.paymentAuditNote)
+  const source = sanitizeTextInput(payload.paymentVerificationSource) || "Manual admin verification"
+  const trackingId = sanitizeTextInput(payload.paymentTrackingId)
+  const bankRefNo = sanitizeTextInput(payload.paymentBankRefNo)
+  const paymentStatusChanged = previousState.paymentStatus !== order.paymentStatus
+  const hasPaymentReferenceUpdate = Boolean(note || trackingId || bankRefNo || payload.paymentVerificationSource)
+
+  if (paymentStatusChanged && !note) {
+    throw new ApiError(400, "Payment verification note is required when changing payment status")
+  }
+
+  if (!paymentStatusChanged && !hasPaymentReferenceUpdate) {
+    return null
+  }
+
+  if (!note) {
+    return null
+  }
+
+  return {
+    fromStatus: previousState.paymentStatus,
+    toStatus: order.paymentStatus,
+    note,
+    source,
+    trackingId,
+    bankRefNo,
+    changedBy: actor?._id || null,
+    changedBySnapshot: {
+      name: actor?.name || "",
+      email: actor?.email || "",
+      role: actor?.role || "",
+    },
+    changedAt: new Date(),
+  }
+}
+
+export function applyAdminOrderUpdate(order, payload, actor = null) {
   const previousState = captureOrderState(order)
   const {
     status,
@@ -89,10 +138,27 @@ function applyAdminOrderUpdate(order, payload) {
     order.notes = notes
   }
 
+  const paymentAuditEntry = buildPaymentAuditEntry({ previousState, order, payload, actor })
+  if (paymentAuditEntry) {
+    order.payment = {
+      ...(order.payment || {}),
+      gateway: order.payment?.gateway || "ccavenue",
+      trackingId: paymentAuditEntry.trackingId || order.payment?.trackingId || "",
+      bankRefNo: paymentAuditEntry.bankRefNo || order.payment?.bankRefNo || "",
+      attemptStatus: getPaymentAttemptStatus(order.paymentStatus, order.payment?.attemptStatus),
+      statusMessage: paymentAuditEntry.note,
+      auditTrail: [
+        ...(order.payment?.auditTrail || []),
+        paymentAuditEntry,
+      ],
+    }
+  }
+
   if (order.paymentStatus === "paid") {
     order.timeline = markTimelineStep(order.timeline, "Payment received")
     order.payment = {
       ...(order.payment || {}),
+      attemptStatus: "success",
       completedAt: order.payment?.completedAt || new Date(),
     }
 
@@ -115,6 +181,7 @@ function applyAdminOrderUpdate(order, payload) {
 
   return {
     previousState,
+    paymentAuditEntry,
     paymentJustCompleted: previousState.paymentStatus !== "paid" && order.paymentStatus === "paid",
   }
 }
@@ -264,7 +331,7 @@ export const addOrderDocument = asyncHandler(async (req, res) => {
 
 export const updateOrderAdmin = asyncHandler(async (req, res) => {
   const order = await findOrderOrThrow(req.params.orderId)
-  const { previousState, paymentJustCompleted } = applyAdminOrderUpdate(order, req.body)
+  const { previousState, paymentAuditEntry, paymentJustCompleted } = applyAdminOrderUpdate(order, req.body, req.user)
   await order.save()
 
   await queueOrderAdminNotifications(order, previousState, paymentJustCompleted)
@@ -280,6 +347,16 @@ export const updateOrderAdmin = asyncHandler(async (req, res) => {
       status: order.status,
       paymentStatus: order.paymentStatus,
       assignedTo: order.assignedTo || null,
+      paymentAudit: paymentAuditEntry
+        ? {
+            fromStatus: paymentAuditEntry.fromStatus,
+            toStatus: paymentAuditEntry.toStatus,
+            source: paymentAuditEntry.source,
+            trackingId: paymentAuditEntry.trackingId,
+            bankRefNo: paymentAuditEntry.bankRefNo,
+            note: paymentAuditEntry.note,
+          }
+        : null,
     },
   })
 
@@ -313,12 +390,13 @@ export const bulkUpdateOrdersAdmin = asyncHandler(async (req, res) => {
 
   const updatedOrders = []
   for (const order of orders) {
-    const { previousState, paymentJustCompleted } = applyAdminOrderUpdate(order, req.body)
+    const { previousState, paymentAuditEntry, paymentJustCompleted } = applyAdminOrderUpdate(order, req.body, req.user)
     await order.save()
     await queueOrderAdminNotifications(order, previousState, paymentJustCompleted)
     updatedOrders.push({
       order,
       changes: summarizeOrderChanges(previousState, order),
+      paymentAuditEntry,
     })
   }
 
@@ -333,6 +411,14 @@ export const bulkUpdateOrdersAdmin = asyncHandler(async (req, res) => {
       changes: updatedOrders.map((item) => ({
         orderNumber: item.order.orderNumber,
         changes: item.changes,
+        paymentAudit: item.paymentAuditEntry
+          ? {
+              fromStatus: item.paymentAuditEntry.fromStatus,
+              toStatus: item.paymentAuditEntry.toStatus,
+              source: item.paymentAuditEntry.source,
+              note: item.paymentAuditEntry.note,
+            }
+          : null,
       })),
     },
   })

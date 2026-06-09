@@ -63,7 +63,7 @@ async function seed() {
       pricing: buildPricing(serviceByCode["svc-007"]),
       status: "completed",
       paymentStatus: "paid",
-      assignedTo: "Priya Sharma",
+      assignedTo: "GST Team",
       notes: "Application completed and GSTIN shared with the client.",
       documents: [{ name: "PAN Card.pdf", url: "" }],
       timeline: createInitialTimeline(true).map((step) => ({
@@ -88,7 +88,7 @@ async function seed() {
       pricing: buildPricing(serviceByCode["svc-004"]),
       status: "processing",
       paymentStatus: "paid",
-      assignedTo: "Rahul Verma",
+      assignedTo: "ITR Team",
       notes: "Documents received. Return preparation is in progress.",
       documents: [{ name: "Financials.pdf", url: "" }],
       timeline: [

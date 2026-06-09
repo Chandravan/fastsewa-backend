@@ -17,6 +17,11 @@ function formatAmount(value) {
   return Number(value || 0).toFixed(2)
 }
 
+function toMinorAmount(value) {
+  const normalized = Number.parseFloat(String(value ?? "").replace(/,/g, "").trim())
+  return Number.isFinite(normalized) ? Math.round(normalized * 100) : null
+}
+
 function sanitizePhone(phone) {
   const digits = String(phone || "").replace(/\D/g, "")
   return digits || "9999999999"
@@ -79,9 +84,10 @@ export function getCcavenueFrontendReturnUrl(path) {
 export function buildCcavenueRequest({ order, user }) {
   const callbackUrl = getCcavenueCallbackUrl()
   const billingName = sanitizeText(user.businessName || user.name, user.name)
+  const gatewayOrderId = order.payment?.attemptId || order.orderNumber
   const requestFields = {
     merchant_id: env.ccavenueMerchantId,
-    order_id: order.orderNumber,
+    order_id: gatewayOrderId,
     currency: order.payment?.currency || "INR",
     amount: formatAmount(order.pricing?.totalAmount),
     redirect_url: callbackUrl,
@@ -99,6 +105,7 @@ export function buildCcavenueRequest({ order, user }) {
     merchant_param2: user.id,
     merchant_param3: order.serviceSnapshot?.name || "",
     merchant_param4: order.pricing?.totalAmount || "",
+    merchant_param5: order.payment?.attemptId || "",
   }
 
   const encRequest = encryptCcavenuePayload(serializeCcavenueFields(requestFields))
@@ -112,7 +119,8 @@ export function buildCcavenueRequest({ order, user }) {
       access_code: env.ccavenueAccessCode,
     },
     meta: {
-      merchantOrderId: order.orderNumber,
+      merchantOrderId: gatewayOrderId,
+      attemptId: order.payment?.attemptId || "",
       amount: requestFields.amount,
       currency: requestFields.currency,
       callbackUrl,
@@ -131,5 +139,52 @@ export function mapCcavenuePaymentState(orderStatus) {
     return { paymentStatus: "failed", orderStatus: "pending", result: "failed" }
   }
 
-  return { paymentStatus: "pending", orderStatus: "pending", result: "pending" }
+  return { paymentStatus: "verification_pending", orderStatus: "pending", result: "pending" }
+}
+
+export function getCcavenuePaymentVerificationIssue({ response, order }) {
+  const expectedGatewayOrderId = String(order.payment?.attemptId || order.payment?.merchantOrderId || order.orderNumber || "").trim()
+  const returnedGatewayOrderId = String(response.order_id || "").trim()
+
+  if (!returnedGatewayOrderId) {
+    return "CCAvenue did not return a gateway order id."
+  }
+
+  if (expectedGatewayOrderId && returnedGatewayOrderId !== expectedGatewayOrderId) {
+    return "CCAvenue gateway order id does not match this order."
+  }
+
+  const expectedAttemptId = String(order.payment?.attemptId || "").trim()
+  const returnedAttemptId = String(response.merchant_param5 || "").trim()
+  if (expectedAttemptId && returnedAttemptId && returnedAttemptId !== expectedAttemptId) {
+    return "CCAvenue payment attempt id does not match this order."
+  }
+
+  const expectedUserId = String(order.user?._id || order.user?.id || order.user || "").trim()
+  const returnedUserId = String(response.merchant_param2 || "").trim()
+  if (expectedUserId && returnedUserId && returnedUserId !== expectedUserId) {
+    return "CCAvenue client id does not match this order."
+  }
+
+  const expectedAmount = toMinorAmount(order.pricing?.totalAmount)
+  const returnedAmount = toMinorAmount(response.amount)
+  if (!expectedAmount || returnedAmount === null) {
+    return "CCAvenue payment amount could not be verified."
+  }
+
+  if (Math.abs(returnedAmount - expectedAmount) > 1) {
+    return "CCAvenue payment amount does not match the order total."
+  }
+
+  const expectedCurrency = String(order.payment?.currency || "INR").trim().toUpperCase()
+  const returnedCurrency = String(response.currency || "").trim().toUpperCase()
+  if (!returnedCurrency) {
+    return "CCAvenue payment currency could not be verified."
+  }
+
+  if (returnedCurrency !== expectedCurrency) {
+    return "CCAvenue payment currency does not match this order."
+  }
+
+  return ""
 }

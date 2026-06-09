@@ -78,6 +78,7 @@ export const getAdminOverview = asyncHandler(async (req, res) => {
   const paymentBreakdown = {
     paid: allOrders.filter((order) => order.paymentStatus === "paid").length,
     pending: allOrders.filter((order) => order.paymentStatus === "pending").length,
+    verificationPending: allOrders.filter((order) => order.paymentStatus === "verification_pending").length,
     failed: allOrders.filter((order) => order.paymentStatus === "failed").length,
   }
 
@@ -135,7 +136,7 @@ export const getAdminOverview = asyncHandler(async (req, res) => {
       { id: "pending", label: "Pending approvals", value: orderBreakdown.pending, tone: "amber" },
       { id: "processing", label: "In progress", value: orderBreakdown.processing, tone: "orange" },
       { id: "completed", label: "Completed", value: orderBreakdown.completed, tone: "green" },
-      { id: "payments", label: "Payment issues", value: paymentBreakdown.failed, tone: "red" },
+      { id: "payments", label: "Payment issues", value: paymentBreakdown.failed + paymentBreakdown.verificationPending, tone: "red" },
     ],
     paymentBreakdown,
     topServices,

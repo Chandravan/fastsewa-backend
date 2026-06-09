@@ -1,6 +1,9 @@
 import nodemailer from "nodemailer"
 import { env } from "../config/env.js"
 
+const BRAND_NAME = "FastSewa Filings"
+const LEGAL_ENTITY_NAME = "Fastsewa Filings Pvt. Ltd."
+
 let transporter = null
 
 function escapeHtml(value) {
@@ -31,7 +34,7 @@ function buildResetPasswordUrl(token) {
 }
 
 function buildSupportLine() {
-  return `Support: ${env.supportEmail}${env.supportWhatsappNumber ? ` | WhatsApp: +${env.supportWhatsappNumber}` : ""}`
+  return `${BRAND_NAME} | ${LEGAL_ENTITY_NAME} | Support: ${env.supportEmail}${env.supportWhatsappNumber ? ` | WhatsApp: +${env.supportWhatsappNumber}` : ""}`
 }
 
 function buildEmailHtml({ title, intro, detailRows = [], actionLabel = "", actionUrl = "", outro = "" }) {
@@ -46,7 +49,7 @@ function buildEmailHtml({ title, intro, detailRows = [], actionLabel = "", actio
   return `
     <div style="background:#f4f4f5;padding:32px 16px;font-family:Segoe UI,Arial,sans-serif;">
       <div style="max-width:640px;margin:0 auto;background:#ffffff;border-radius:18px;padding:28px;border:1px solid #e5e7eb;">
-        <p style="margin:0 0 10px;color:#f97316;font-size:12px;font-weight:700;letter-spacing:0.18em;text-transform:uppercase;">FastSewa Notification</p>
+        <p style="margin:0 0 10px;color:#f97316;font-size:12px;font-weight:700;letter-spacing:0.18em;text-transform:uppercase;">${escapeHtml(BRAND_NAME)} | ${escapeHtml(LEGAL_ENTITY_NAME)}</p>
         <h1 style="margin:0 0 12px;color:#111827;font-size:26px;line-height:1.2;">${escapeHtml(title)}</h1>
         <p style="margin:0 0 20px;color:#4b5563;font-size:14px;line-height:1.7;">${escapeHtml(intro)}</p>
         <table style="width:100%;border-collapse:collapse;margin:0 0 12px;">${rows}</table>
@@ -141,7 +144,7 @@ function resolveClient(order, fallbackUser = null) {
 function getOrderCore(order) {
   return {
     orderNumber: order.orderNumber || order.id,
-    serviceName: order.serviceSnapshot?.name || order.serviceName || "FastSewa Service",
+    serviceName: order.serviceSnapshot?.name || order.serviceName || `${BRAND_NAME} Service`,
     amount: order.pricing?.totalAmount || order.amount || 0,
     assignedTo: order.assignedTo || "FastSewa CA Team",
   }
@@ -182,8 +185,8 @@ export async function sendWelcomeEmail({ user }) {
     return
   }
 
-  const subject = "Welcome to FastSewa"
-  const intro = `Hi ${user.name || "there"}, your FastSewa account is ready. You can now place orders, upload documents, and track filings online.`
+  const subject = `Welcome to ${BRAND_NAME}`
+  const intro = `Hi ${user.name || "there"}, your ${BRAND_NAME} account is ready. You can now place orders, upload documents, and track filings online.`
   const actionUrl = new URL("/dashboard", env.frontendUrl).toString()
 
   await sendEmail({
@@ -191,7 +194,7 @@ export async function sendWelcomeEmail({ user }) {
     subject,
     text: `${intro}\n\nOpen dashboard: ${actionUrl}\n${buildSupportLine()}`,
     html: buildEmailHtml({
-      title: "Welcome to FastSewa",
+      title: `Welcome to ${BRAND_NAME}`,
       intro,
       detailRows: [
         { label: "Account", value: user.email },
@@ -210,8 +213,8 @@ export async function sendPasswordResetEmail({ user, resetToken }) {
   }
 
   const resetUrl = buildResetPasswordUrl(resetToken)
-  const subject = "Reset your FastSewa password"
-  const intro = `Hi ${user.name || "there"}, we received a request to reset your FastSewa password. This link will expire in ${env.passwordResetTokenTtlMinutes} minutes.`
+  const subject = `Reset your ${BRAND_NAME} password`
+  const intro = `Hi ${user.name || "there"}, we received a request to reset your ${BRAND_NAME} password. This link will expire in ${env.passwordResetTokenTtlMinutes} minutes.`
 
   const emailResult = await sendEmail({
     to: user.email,
@@ -241,8 +244,8 @@ export async function sendPasswordChangedEmail({ user }) {
     return
   }
 
-  const subject = "Your FastSewa password was changed"
-  const intro = `Hi ${user.name || "there"}, your FastSewa password was changed successfully. If this was not you, contact support immediately.`
+  const subject = `Your ${BRAND_NAME} password was changed`
+  const intro = `Hi ${user.name || "there"}, your ${BRAND_NAME} password was changed successfully. If this was not you, contact support immediately.`
   const actionUrl = new URL("/login", env.frontendUrl).toString()
 
   await sendEmail({
@@ -279,7 +282,7 @@ export async function sendContactInquiryNotifications({ inquiry }) {
     to: getAdminRecipients(),
     subject,
     text: [
-      "A new contact inquiry was submitted on FastSewa website.",
+      `A new contact inquiry was submitted on ${BRAND_NAME} website.`,
       `Name: ${inquiry.name || "-"}`,
       `Email: ${inquiry.email || "-"}`,
       `Submitted at: ${submittedAt}`,
@@ -306,7 +309,7 @@ export async function sendContactInquiryNotifications({ inquiry }) {
   const customerAcknowledgement = inquiry.email
     ? sendEmail({
         to: inquiry.email,
-        subject: "We received your message | FastSewa",
+        subject: `We received your message | ${BRAND_NAME}`,
         text: [
           `Hi ${inquiry.name || "there"},`,
           "",
@@ -357,8 +360,8 @@ export async function sendContactInquiryUpdatedEmail({ inquiry, previousState = 
 
   const nextStatusLabel = getInquiryStatusLabel(nextStatus)
   const subject = statusChanged
-    ? `Inquiry update: ${nextStatusLabel} | FastSewa`
-    : "Inquiry update from FastSewa"
+    ? `Inquiry update: ${nextStatusLabel} | ${BRAND_NAME}`
+    : `Inquiry update from ${BRAND_NAME}`
   const updateTime = new Date(inquiry.updatedAt || Date.now()).toLocaleString("en-IN", {
     dateStyle: "medium",
     timeStyle: "short",
@@ -369,7 +372,7 @@ export async function sendContactInquiryUpdatedEmail({ inquiry, previousState = 
   const textLines = [
     `Hi ${inquiry.name || "there"},`,
     "",
-    "There is an update on your FastSewa inquiry.",
+    `There is an update on your ${BRAND_NAME} inquiry.`,
     statusChanged
       ? `Status changed from ${previousStatusLabel} to ${nextStatusLabel}`
       : `Current status: ${nextStatusLabel}`,
@@ -410,7 +413,7 @@ export async function sendContactInquiryUpdatedEmail({ inquiry, previousState = 
     text: textLines.join("\n"),
     html: buildEmailHtml({
       title: "Your inquiry was updated",
-      intro: `Hi ${inquiry.name || "there"}, there is an update on your FastSewa inquiry.`,
+      intro: `Hi ${inquiry.name || "there"}, there is an update on your ${BRAND_NAME} inquiry.`,
       detailRows,
       outro,
     }),
@@ -429,7 +432,7 @@ export async function sendOrderCreatedNotifications({ order, user }) {
       text: `Hi ${client.name || "there"}, we have received your order ${orderCore.orderNumber} for ${orderCore.serviceName}. Total amount: ${formatCurrency(orderCore.amount)}.\n\nTrack order: ${orderUrl}\n${buildSupportLine()}`,
       html: buildEmailHtml({
         title: "Your order has been received",
-        intro: `Hi ${client.name || "there"}, we have received your FastSewa order and our team is ready to process it.`,
+        intro: `Hi ${client.name || "there"}, we have received your ${BRAND_NAME} order and our team is ready to process it.`,
         detailRows: [
           { label: "Order", value: orderCore.orderNumber },
           { label: "Service", value: orderCore.serviceName },
@@ -447,7 +450,7 @@ export async function sendOrderCreatedNotifications({ order, user }) {
       text: `New order received.\nOrder: ${orderCore.orderNumber}\nService: ${orderCore.serviceName}\nClient: ${client.name || "Unknown"} (${client.email || "no-email"})\nAmount: ${formatCurrency(orderCore.amount)}\nTrack: ${orderUrl}`,
       html: buildEmailHtml({
         title: "New order received",
-        intro: "A new order has landed in the FastSewa pipeline.",
+        intro: `A new order has landed in the ${BRAND_NAME} pipeline.`,
         detailRows: [
           { label: "Order", value: orderCore.orderNumber },
           { label: "Service", value: orderCore.serviceName },
@@ -473,7 +476,7 @@ export async function sendPaymentSuccessNotifications({ order, user }) {
       text: `Hi ${client.name || "there"}, payment has been confirmed for ${orderCore.orderNumber}. Your order is now moving forward.\n\nService: ${orderCore.serviceName}\nAmount paid: ${formatCurrency(orderCore.amount)}\nTrack order: ${orderUrl}\n${buildSupportLine()}`,
       html: buildEmailHtml({
         title: "Payment confirmed",
-        intro: `Payment has been confirmed for your FastSewa order and processing is now underway.`,
+        intro: `Payment has been confirmed for your ${BRAND_NAME} order and processing is now underway.`,
         detailRows: [
           { label: "Order", value: orderCore.orderNumber },
           { label: "Service", value: orderCore.serviceName },
@@ -491,7 +494,7 @@ export async function sendPaymentSuccessNotifications({ order, user }) {
       text: `Payment confirmed.\nOrder: ${orderCore.orderNumber}\nClient: ${client.name || "Unknown"} (${client.email || "no-email"})\nAmount: ${formatCurrency(orderCore.amount)}\nTrack: ${orderUrl}`,
       html: buildEmailHtml({
         title: "Payment received",
-        intro: "A FastSewa order payment has been confirmed.",
+        intro: `A ${BRAND_NAME} order payment has been confirmed.`,
         detailRows: [
           { label: "Order", value: orderCore.orderNumber },
           { label: "Client", value: `${client.name || "Unknown"} (${client.email || "no-email"})` },
@@ -539,10 +542,10 @@ export async function sendOrderUpdateNotifications({ order, user, previousState 
   await sendEmail({
     to: client.email,
     subject: `Order update: ${orderCore.orderNumber}`,
-    text: `Hi ${client.name || "there"}, there is an update on your FastSewa order ${orderCore.orderNumber}.\n\n${changes.join("\n")}\n\nTrack order: ${orderUrl}\n${buildSupportLine()}`,
+    text: `Hi ${client.name || "there"}, there is an update on your ${BRAND_NAME} order ${orderCore.orderNumber}.\n\n${changes.join("\n")}\n\nTrack order: ${orderUrl}\n${buildSupportLine()}`,
     html: buildEmailHtml({
       title: "Your order was updated",
-      intro: `There is a fresh update on your FastSewa order. Here is what changed:`,
+      intro: `There is a fresh update on your ${BRAND_NAME} order. Here is what changed:`,
       detailRows: changes.map((change, index) => ({ label: `Update ${index + 1}`, value: change })),
       actionLabel: "View Order",
       actionUrl: orderUrl,

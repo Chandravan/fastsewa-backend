@@ -44,6 +44,13 @@ export function markTimelineStep(timeline, stepStatus, date = new Date()) {
 
 export function mapOrderToClient(orderDoc) {
   const order = typeof orderDoc.toJSON === "function" ? orderDoc.toJSON() : orderDoc
+  const attemptExpiresAt = order.payment?.attemptExpiresAt ? new Date(order.payment.attemptExpiresAt) : null
+  const paymentStatus = order.paymentStatus === "pending"
+    && order.payment?.attemptStatus === "initiated"
+    && attemptExpiresAt
+    && attemptExpiresAt.getTime() <= Date.now()
+      ? "verification_pending"
+      : order.paymentStatus
 
   return {
     id: order.id,
@@ -52,7 +59,7 @@ export function mapOrderToClient(orderDoc) {
     serviceName: order.serviceSnapshot?.name || "",
     category: order.serviceSnapshot?.category || "",
     status: order.status,
-    paymentStatus: order.paymentStatus,
+    paymentStatus,
     amount: order.pricing?.finalAmount || 0,
     pricing: order.pricing,
     createdAt: order.createdAt,

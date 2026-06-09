@@ -9,6 +9,7 @@ import { asyncHandler } from "../utils/asyncHandler.js"
 import {
   buildCcavenueRequest,
   getCcavenueFrontendReturnUrl,
+  getCcavenuePaymentVerificationIssue,
   isCcavenueConfigured,
   mapCcavenuePaymentState,
   parseCcavenueResponse,
@@ -19,6 +20,8 @@ import {
   mapOrderToClient,
   markTimelineStep,
 } from "../utils/orderHelpers.js"
+
+const PAYMENT_ATTEMPT_TTL_MS = 20 * 60 * 1000
 
 async function findOrderOrThrow(identifier) {
   const order = await Order.findOne({
@@ -32,6 +35,36 @@ async function findOrderOrThrow(identifier) {
   }
 
   return order
+}
+
+function createPaymentAttemptId(order, now = new Date()) {
+  const prefix = String(order.orderNumber || order.id || "ORDER").replace(/[^a-zA-Z0-9]/g, "")
+  return `${prefix}${now.getTime()}`
+}
+
+function isAttemptActive(payment = {}, now = new Date()) {
+  if (payment.attemptStatus !== "initiated" || !payment.attemptExpiresAt) {
+    return false
+  }
+
+  return new Date(payment.attemptExpiresAt).getTime() > now.getTime()
+}
+
+function isAttemptExpired(payment = {}, now = new Date()) {
+  if (payment.attemptStatus !== "initiated" || !payment.attemptExpiresAt) {
+    return false
+  }
+
+  return new Date(payment.attemptExpiresAt).getTime() <= now.getTime()
+}
+
+function buildPaymentLookupQuery(identifiers = []) {
+  const uniqueIdentifiers = Array.from(new Set(identifiers.filter(Boolean).map(String)))
+  return uniqueIdentifiers.flatMap((identifier) => [
+    ...buildOrderLookupQuery(identifier),
+    { "payment.attemptId": identifier },
+    { "payment.merchantOrderId": identifier },
+  ])
 }
 
 function buildReturnUrl({ order, result, message = "" }) {
@@ -60,12 +93,39 @@ export const initiateCcavenuePayment = asyncHandler(async (req, res) => {
     throw new ApiError(400, "This order is already paid")
   }
 
+  if (order.paymentStatus === "refunded") {
+    throw new ApiError(400, "This order has already been refunded. Please create a new order if payment is needed again.")
+  }
+
+  const now = new Date()
+  if (isAttemptActive(order.payment, now)) {
+    throw new ApiError(409, "Payment is already in progress. Please wait for CCAvenue to return the confirmation before retrying.")
+  }
+
+  if (order.paymentStatus === "verification_pending" || isAttemptExpired(order.payment, now)) {
+    order.paymentStatus = "verification_pending"
+    order.payment = {
+      ...(order.payment || {}),
+      attemptStatus: "verification_pending",
+      statusMessage: "Payment attempt is awaiting manual verification. Please contact support before retrying.",
+    }
+    await order.save()
+    throw new ApiError(409, "This payment is awaiting verification. Please contact support before retrying.")
+  }
+
+  const attemptId = createPaymentAttemptId(order, now)
   order.payment = {
     ...(order.payment || {}),
     gateway: "ccavenue",
-    merchantOrderId: order.orderNumber,
+    merchantOrderId: attemptId,
+    attemptId,
+    attemptStatus: "initiated",
     currency: order.payment?.currency || "INR",
-    initiatedAt: new Date(),
+    initiatedAt: now,
+    attemptStartedAt: now,
+    attemptExpiresAt: new Date(now.getTime() + PAYMENT_ATTEMPT_TTL_MS),
+    lastCallbackAt: null,
+    statusMessage: "Payment initiated. Awaiting CCAvenue confirmation.",
   }
   await order.save()
 
@@ -96,7 +156,12 @@ export async function handleCcavenueCallback(req, res) {
     }
 
     order = await Order.findOne({
-      $or: buildOrderLookupQuery(orderIdentifier),
+      $or: buildPaymentLookupQuery([
+        response.order_id,
+        response.merchant_param1,
+        response.merchant_param5,
+        req.body?.orderNo,
+      ]),
     })
       .populate("service")
       .populate("user", "name email businessName")
@@ -111,17 +176,36 @@ export async function handleCcavenueCallback(req, res) {
       throw new ApiError(404, "Unable to map the CCAvenue response to an order")
     }
 
+    if (response.merchant_param1 && response.merchant_param1 !== order.id) {
+      throw new ApiError(400, "CCAvenue response order ownership mismatch")
+    }
+
+    const previousPaymentStatus = order.paymentStatus
     const paymentState = mapCcavenuePaymentState(response.order_status)
-    const effectivePaymentState = order.paymentStatus === "paid" && paymentState.result !== "success"
+    const verificationIssue = paymentState.result === "success" && previousPaymentStatus !== "paid"
+      ? getCcavenuePaymentVerificationIssue({ response, order })
+      : ""
+    const effectivePaymentState = previousPaymentStatus === "paid"
       ? {
           paymentStatus: "paid",
           orderStatus: order.status,
           result: "success",
         }
-      : paymentState
+      : verificationIssue
+        ? {
+            paymentStatus: "verification_pending",
+            orderStatus: "pending",
+            result: "pending",
+          }
+        : paymentState
 
-    const previousPaymentStatus = order.paymentStatus
     order.paymentStatus = effectivePaymentState.paymentStatus
+    const callbackAt = new Date()
+    const nextAttemptStatus = effectivePaymentState.result === "success"
+      ? "success"
+      : effectivePaymentState.result === "failed"
+        ? "failed"
+        : "verification_pending"
 
     if (effectivePaymentState.result === "success") {
       order.status = order.status === "completed" ? "completed" : effectivePaymentState.orderStatus
@@ -137,7 +221,9 @@ export async function handleCcavenueCallback(req, res) {
     order.payment = {
       ...(order.payment || {}),
       gateway: "ccavenue",
-      merchantOrderId: response.order_id || order.orderNumber,
+      merchantOrderId: response.order_id || order.payment?.merchantOrderId || order.orderNumber,
+      attemptId: order.payment?.attemptId || response.merchant_param5 || "",
+      attemptStatus: nextAttemptStatus,
       gatewayStatus: response.order_status || "",
       trackingId: response.tracking_id || "",
       bankRefNo: response.bank_ref_no || "",
@@ -145,8 +231,9 @@ export async function handleCcavenueCallback(req, res) {
       cardName: response.card_name || "",
       currency: response.currency || order.payment?.currency || "INR",
       initiatedAt: order.payment?.initiatedAt || new Date(),
-      completedAt: effectivePaymentState.result === "success" ? new Date() : order.payment?.completedAt || null,
-      statusMessage: response.status_message || response.failure_message || "",
+      lastCallbackAt: callbackAt,
+      completedAt: effectivePaymentState.result === "success" ? callbackAt : order.payment?.completedAt || null,
+      statusMessage: verificationIssue || response.status_message || response.failure_message || "",
       rawResponse: response,
     }
 
@@ -159,7 +246,7 @@ export async function handleCcavenueCallback(req, res) {
     return res.redirect(303, buildReturnUrl({
       order,
       result: effectivePaymentState.result,
-      message: response.status_message || response.failure_message || response.order_status || "",
+      message: verificationIssue || response.status_message || response.failure_message || response.order_status || "",
     }))
   } catch (error) {
     const safeMessage = error instanceof ApiError

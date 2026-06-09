@@ -43,6 +43,68 @@ const documentSchema = new mongoose.Schema(
   { _id: false }
 )
 
+const paymentAuditSchema = new mongoose.Schema(
+  {
+    fromStatus: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+    toStatus: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+    note: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+    source: {
+      type: String,
+      trim: true,
+      default: "Manual admin verification",
+    },
+    trackingId: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+    bankRefNo: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+    changedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
+    changedBySnapshot: {
+      name: {
+        type: String,
+        trim: true,
+        default: "",
+      },
+      email: {
+        type: String,
+        trim: true,
+        default: "",
+      },
+      role: {
+        type: String,
+        trim: true,
+        default: "",
+      },
+    },
+    changedAt: {
+      type: Date,
+      default: Date.now,
+    },
+  },
+  { _id: false }
+)
+
 const orderSchema = new mongoose.Schema(
   {
     orderNumber: {
@@ -109,6 +171,16 @@ const orderSchema = new mongoose.Schema(
         trim: true,
         default: "",
       },
+      attemptId: {
+        type: String,
+        trim: true,
+        default: "",
+      },
+      attemptStatus: {
+        type: String,
+        enum: ["none", "initiated", "verification_pending", "success", "failed", "cancelled", "expired"],
+        default: "none",
+      },
       gatewayStatus: {
         type: String,
         trim: true,
@@ -143,6 +215,18 @@ const orderSchema = new mongoose.Schema(
         type: Date,
         default: null,
       },
+      attemptStartedAt: {
+        type: Date,
+        default: null,
+      },
+      attemptExpiresAt: {
+        type: Date,
+        default: null,
+      },
+      lastCallbackAt: {
+        type: Date,
+        default: null,
+      },
       completedAt: {
         type: Date,
         default: null,
@@ -156,6 +240,10 @@ const orderSchema = new mongoose.Schema(
         type: mongoose.Schema.Types.Mixed,
         default: null,
       },
+      auditTrail: {
+        type: [paymentAuditSchema],
+        default: [],
+      },
     },
     status: {
       type: String,
@@ -164,7 +252,7 @@ const orderSchema = new mongoose.Schema(
     },
     paymentStatus: {
       type: String,
-      enum: ["pending", "paid", "failed", "refunded"],
+      enum: ["pending", "verification_pending", "paid", "failed", "refunded"],
       default: "pending",
     },
     assignedTo: {

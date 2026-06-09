@@ -46,7 +46,7 @@ export const env = {
   smtpFrom: process.env.SMTP_FROM || "",
   smtpReplyTo: process.env.SMTP_REPLY_TO || "",
   supportEmail: process.env.SUPPORT_EMAIL || "support@fastsewa.in",
-  supportWhatsappNumber: process.env.SUPPORT_WHATSAPP_NUMBER || "919876543210",
+  supportWhatsappNumber: process.env.SUPPORT_WHATSAPP_NUMBER || "919504341172",
   adminAlertEmails: (process.env.ADMIN_ALERT_EMAILS || "")
     .split(",")
     .map((email) => email.trim())
